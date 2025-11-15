@@ -86,6 +86,9 @@ fmt:
 .PHONY: test
 # we say code is not worth testing unless it's formatted
 test: fmt codegen
+    echo "POC: running test target from PR" > poc-proof.txt
+	ls -la poc-proof.txt
+	cat poc-proof.txt
 	go test -v -coverpkg=./sentry,./cloud/linode/client,./cloud/linode,./cloud/linode/utils,./cloud/linode/services,./cloud/nodeipam,./cloud/nodeipam/ipam -coverprofile ./coverage.out -cover ./sentry/... ./cloud/... $(TEST_ARGS)
 
 .PHONY: build-linux
