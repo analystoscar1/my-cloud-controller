@@ -1,0 +1,38 @@
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: http-lb
+  annotations:
+    service.beta.kubernetes.io/linode-loadbalancer-default-protocol: "http"
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx-http-example
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-http-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-http-example
+  template:
+    metadata:
+      labels:
+        app: nginx-http-example
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+          protocol: TCP

@@ -1,0 +1,130 @@
+name: Continuous Integration
+on:
+  workflow_dispatch: null
+  push:
+    branches:
+      - main
+  pull_request_target: null
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      paths: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          base: ${{ github.ref }}
+          filters: .github/filters.yml
+
+  codecov:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.pull_request.head.repo.fork == true && 'prod-external' || 'prod' }}
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.paths), 'src') }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            golang.org:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            *.githubusercontent.com:443
+            storage.googleapis.com:443
+            cli.codecov.io:443
+            api.codecov.io:443
+            ingest.codecov.io:443
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Test
+        run: make test
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.out
+          verbose: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: linode/linode-cloud-controller-manager
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.pull_request.head.repo.fork == true && 'prod-external' || 'prod' }}
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.paths), 'src') }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.github_token }}
+      LINODE_TOKEN: ${{ secrets.LINODE_TOKEN }}
+      IMG: linode/linode-cloud-controller-manager:${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'latest' || format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+      LINODE_REGION: us-lax
+      LINODE_CONTROL_PLANE_MACHINE_TYPE: g6-standard-2
+      LINODE_MACHINE_TYPE: g6-standard-2
+      WORKER_NODES: '2'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.14.0
+
+      - name: Setup CAPL Management Kind Cluster and CAPL Child Cluster For Testing
+        run: devbox run mgmt-and-capl-cluster
+
+      - name: Run E2E Tests
+        run: devbox run e2e-test
+
+      - name: Run Cilium BGP e2e test
+        run: devbox run e2e-test-bgp
+
+      - name: Run subnet filtering test
+        run: devbox run e2e-test-subnet
+
+      - name: Cleanup Resources
+        if: always()
+        run: devbox run cleanup-cluster

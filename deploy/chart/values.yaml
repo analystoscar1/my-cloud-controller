@@ -1,0 +1,201 @@
+# apiToken [Required if secretRef is not set] - Must be a Linode APIv4 Personal Access Token with all permissions. (https://cloud.linode.com/profile/tokens)
+apiToken: ""
+
+# region [Required if secretRef is not set] - Must be a Linode region. (https://api.linode.com/v4/regions)
+region: ""
+
+# Set these values if your APIToken and region are already present in a k8s secret.
+# secretRef:
+#   name: "linode-ccm"
+#   apiTokenRef: "apiToken"
+#   regionRef: "region"
+
+# Ensures the CCM runs on control plane nodes
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+
+# DEPRECATED: use affinity instead
+nodeSelector: {}
+
+securityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+
+# Used to set KUBERNETES_SERVICE_HOST in environment variable if required.
+k8sServiceHost: ""
+
+# Used to set KUBERNETES_SERVICE_PORT in environment variable if required.
+k8sServicePort: ""
+
+# Image repository must be 'linode/linode-cloud-controller-manager'. The tag can be changed/set to various ccm versions.
+# The pullPolicy is set to Always but can be changed when it is not required to always pull the new image
+image:
+  repository: linode/linode-cloud-controller-manager
+  tag:  # only set if required, defaults to .Chart.AppVersion set during release or "latest" by default
+  pullPolicy: Always
+
+# Default namespace is "kube-system" but it can be set to another namespace
+namespace: "kube-system"
+
+# Set of default tolerations
+tolerations:
+ # The CCM can run on Nodes tainted as masters
+  - key: "node-role.kubernetes.io/control-plane"
+    effect: "NoSchedule"
+  # The CCM is a "critical addon"
+  - key: "CriticalAddonsOnly"
+    operator: "Exists"
+  # This taint is set on all Nodes when an external CCM is used
+  - key: node.cloudprovider.kubernetes.io/uninitialized
+    value: "true"
+    effect: NoSchedule
+  - key: node.kubernetes.io/not-ready
+    operator: Exists
+    effect: NoSchedule
+  - key: node.kubernetes.io/unreachable
+    operator: Exists
+    effect: NoSchedule
+
+# Options for LoadBalancers backed by shared IPs instead of NodeBalancers
+# sharedIPLoadBalancing:
+#   loadBalancerType: cilium-bgp
+#   bgpNodeSelector: <node label (e.g. cilium-bgp-peering=true)>
+#   ipHolderSuffix: <cluster name or other identifier (e.g. myclustername1)>
+
+# This section adds ability to enable route-controller for ccm
+# routeController:
+#   Use one of the two: either [vpcNames and subnetNames] or [vpcIDs and subnetIDs]
+#   vpcNames: <comma separated list of vpc names>
+#   subnetNames: <comma separated list of subnet names>
+#   vpcIDs: <comma separated list of vpc ids>
+#   subnetIDs: <comma separated list of subnet ids>
+#   clusterCIDR: 10.192.0.0/10
+#   configureCloudRoutes: true
+
+# This section adds ability to enable nodeipam-controller for ccm
+# enableNodeIPAM: false
+# clusterCIDR: 10.192.0.0/10
+# nodeCIDRMaskSizeIPv4: 24
+# nodeCIDRMaskSizeIPv6: 64
+# disableIPv6NodeCIDRAllocation: false
+
+# vpcs and subnets that node internal IPs will be assigned from (not required if already specified in routeController)
+# Use one of the two: either [vpcNames and subnetNames] or [vpcIDs and subnetIDs]
+# vpcNames: <comma separated list of vpc names>
+# subnetNames: <comma separated list of subnet names>
+# vpcIDs: <comma separated list of vpc ids>
+# subnetIDs: <comma separated list of subnet ids>
+
+# Enable Linode token health checker
+# tokenHealthChecker: true
+
+# Default NodeBalancer type to create("common" or "premium"). Default is "common"
+# defaultNBType: "common"
+
+# Enable IPv6 ingress addresses for LoadBalancer services
+# When enabled, both IPv4 and IPv6 addresses will be included in the LoadBalancer status for all services
+# This can also be controlled per-service using the "service.beta.kubernetes.io/linode-loadbalancer-enable-ipv6-ingress" annotation
+# enableIPv6ForLoadBalancers: true
+
+# disableNodeBalancerVPCBackends is used to disable the use of VPC backends for NodeBalancers.
+# When set to true, NodeBalancers will use linode private IPs for backends instead of VPC IPs.
+# disableNodeBalancerVPCBackends: false
+
+# nodeBalancerBackendIPv4Subnet is the subnet to use for the backend ips of the NodeBalancer
+# nodeBalancerBackendIPv4Subnet: ""
+
+# nodeBalancerBackendIPv4SubnetID is the subnet id to use for the backend ips of the NodeBalancer
+# nodeBalancerBackendIPv4SubnetID: ""
+
+# nodeBalancerBackendIPv4SubnetName is the subnet name to use for the backend ips of the NodeBalancer
+# nodeBalancerBackendIPv4SubnetName: ""
+
+# nodeBalancerPrefix is used to add prefix for nodeBalancer name. Default is "ccm"
+# nodeBalancerPrefix: ""
+
+# This section adds the ability to pass environment variables to adjust CCM defaults
+# https://github.com/linode/linode-cloud-controller-manager/blob/master/cloud/linode/loadbalancers.go
+# LINODE_HOSTNAME_ONLY_INGRESS type bool is supported
+env:
+#  - name: EXAMPLE_ENV_VAR
+#    value: "true"
+
+# Linode tags to apply to all NodeBalancers
+nodeBalancerTags: []
+
+# This section adds the ability to pass volumes to the CCM DaemonSet
+volumes:
+#  - name: test-volume
+#    emptyDir:
+#      sizeLimit: 500Mi
+
+# this section adds the ability to pass volumeMounts to the CCM container
+volumeMounts:
+#  - mountPath: /tmp/
+#    name: test-volume
+
+# Add podAnnotations and podLabels for customization
+podAnnotations: {}
+podLabels: {}
+
+resources:
+  # requests:
+  #   memory: "100Mi"
+  #   cpu: "50m"
+  # limits:
+  #   memory: "1000Mi"
+  #   cpu: "1000m"
+
+# This flag allows to scrape /metrics endpoint without authorization
+# allowUnauthorizedMetrics: false
+
+# enables host network
+# enableHostNetwork: true
+
+# specify the update strategy
+# updateStrategy:
+#   type: RollingUpdate
+#   rollingUpdate:
+#     maxUnavailable: 25%
+
+# log verbosity of the CCM
+# logVerbosity: 3
+
+# set the liveness and readiness probes
+# livenessProbe:
+#   tcpSocket:
+#     port: 10253
+#   initialDelaySeconds: 15
+#   timeoutSeconds: 15
+#   failureThreshold: 8
+
+# readinessProbe:
+#   tcpSocket:
+#     port: 10253
+#   initialDelaySeconds: 15
+#   timeoutSeconds: 15
+#   failureThreshold: 8
+
+# set extra arguments to the CCM container.
+# extraArgs:
+# - --kubeconfig=/etc/kubernetes/value
+
+# add toggle to rbac, useful when running CCM outside a cluster
+# rbacEnabled: true
+
+# template kubeconfig volume
+# k8sVolume:
+# - name: k8s
+#   hostPath:
+#     path: /etc/kubeconfig

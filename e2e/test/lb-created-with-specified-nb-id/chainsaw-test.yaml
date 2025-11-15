@@ -1,0 +1,93 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/test-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: lb-created-with-specified-nb-id
+  labels:
+    all:
+    lke:
+spec:
+  namespace: "lb-created-with-specified-nb-id"
+  steps:
+    - name: Create dummy service
+      try:
+        - apply:
+            file: dummy-service.yaml
+      catch:
+        - describe:
+            apiVersion: v1
+            kind: Service
+    - name: Check that loadbalancer ip is assigned
+      try:
+      - assert:
+          resource:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: svc-dummy
+            status:
+              (loadBalancer.ingress[0].ip != null): true
+    - name: Create nodebalancer and create resources
+      try:
+        - script:
+            outputs:
+              - name: nbconf
+                value: (json_parse($stdout))
+            content: |
+              set -e
+
+              re='^[0-9]+$'
+              LABEL="ccm-$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 5)"
+
+              # Get data to use for new nodebalancer
+              data=$(KUBECONFIG=$KUBECONFIG NAMESPACE=$NAMESPACE LINODE_TOKEN=$LINODE_TOKEN LABEL=$LABEL REGION=$REGION ../scripts/get-nb-create-data.sh svc-dummy)
+
+              nbid=$(curl -s --request POST \
+                -H "Authorization: Bearer $LINODE_TOKEN" \
+                -H "Content-Type: application/json" --fail-early --retry 3 \
+                -H "accept: application/json" \
+                "$LINODE_URL/v4beta/nodebalancers" \
+                --data "$data" | jq .id)
+
+              if ! [[ $nbid =~ $re ]]; then
+                  echo "Nodebalancer id [$nbid] is incorrect, failed to create nodebalancer"
+                  exit 1
+              fi
+
+              echo "{\"id\": \"$nbid\"}"
+            check:
+              ($error == null): true
+        - apply:
+            file: create-pods-services.yaml
+      catch:
+        - describe:
+            apiVersion: v1
+            kind: Pod
+        - describe:
+            apiVersion: v1
+            kind: Service
+    - name: Check that loadbalancer ip is assigned
+      try:
+      - assert:
+          resource:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: svc-test
+            status:
+              (loadBalancer.ingress[0].ip != null): true
+    - name: Validate nodebalancer id
+      try:
+        - script:
+            content: |
+              set -e
+
+              expectedId=$(kubectl get svc svc-test -n $NAMESPACE -o json | jq -r .metadata.annotations[])
+              nbid=$(KUBECONFIG=$KUBECONFIG NAMESPACE=$NAMESPACE LINODE_TOKEN=$LINODE_TOKEN ../scripts/get-nb-id.sh)
+
+              if [[ $nbid == $expectedId ]]; then
+                  echo "Condition met"
+              fi
+            check:
+              ($error == null): true
+              (contains($stdout, 'Condition met')): true

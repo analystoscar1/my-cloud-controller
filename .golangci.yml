@@ -1,0 +1,187 @@
+version: "2"
+run:
+  issues-exit-code: 1
+output:
+  formats:
+    text:
+      path: stdout
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - decorder
+    - depguard
+    - dogsled
+    - dupl
+    - dupword
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - forcetypeassert
+    - ginkgolinter
+    - gocheckcompilerdirectives
+    - gochecksumtype
+    - goconst
+    - goprintffuncname
+    - gosec
+    - gosmopolitan
+    - govet
+    - importas
+    - ineffassign
+    - loggercheck
+    - maintidx
+    - makezero
+    - misspell
+    - mnd
+    - musttag
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - prealloc
+    - predeclared
+    - protogetter
+    - reassign
+    - recvcheck
+    - rowserrcheck
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - testifylint
+    - thelper
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - usetesting
+    - varnamelen
+    - wastedassign
+    - whitespace
+    - zerologlint
+  settings:
+    cyclop:
+      max-complexity: 15
+    depguard:
+      rules:
+        main:
+          files:
+            - $all
+            - '!$test'
+          deny:
+            - pkg: gob
+              desc: Please convert types manually
+    dupl:
+      threshold: 100
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - fmt:.*
+        - io/ioutil:^Read.*
+    goconst:
+      min-len: 3
+      min-occurrences: 5
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      settings:
+        captLocal:
+          paramsOnly: true
+        rangeValCopy:
+          sizeThreshold: 32
+    gosec:
+      excludes:
+        - G115
+      confidence: medium
+    govet:
+      enable:
+        - shadow
+    mnd:
+      checks:
+        - case
+        - condition
+        - operation
+        - return
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: true
+    varnamelen:
+      min-name-length: 2
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - copyloopvar
+          - dupl
+          - errcheck
+          - gocyclo
+          - gosec
+          - maintidx
+          - unparam
+          - varnamelen
+        path: _test(ing)?\.go
+      - linters:
+          - gocritic
+        path: _test\.go
+        text: (unnamedResult|exitAfterDefer)
+      - linters:
+          - gosec
+        text: 'G101:'
+      - linters:
+          - gosec
+        text: 'G104:'
+    paths:
+      - zz_generated\..+\.go$
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - blank
+        - dot
+        - prefix(github.com/linode/linode-cloud-controller-manager)
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/linode/linode-cloud-controller-manager
+  exclusions:
+    generated: lax
+    paths:
+      - zz_generated\..+\.go$
+      - third_party$
+      - builtin$
+      - examples$

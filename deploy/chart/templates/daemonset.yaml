@@ -1,0 +1,238 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ccm-linode
+  labels:
+    app: ccm-linode
+  namespace: {{ required ".Values.namespace required" .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: ccm-linode
+  {{- with .Values.updateStrategy }}
+  updateStrategy: 
+  {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        app: ccm-linode
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if ne .Values.rbacEnabled false }}
+      serviceAccountName: ccm-linode
+      {{- end }}
+      {{- with .Values.securityContext }}
+      securityContext:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      hostNetwork: {{ if hasKey .Values "enableHostNetwork" }}{{ .Values.enableHostNetwork }}{{ else }}true{{ end }}
+      containers:
+        - image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          name: ccm-linode
+          args:
+            - --leader-elect-resource-lock=leases
+            - --v={{ default 3 .Values.logVerbosity }}
+            - --secure-port=10253
+            - --webhook-secure-port=0
+            {{- with .Values.linodegoDebug }}
+            - --linodego-debug={{ . }}
+            {{- end }}
+            {{- $clusterCIDR := .Values.clusterCIDR }}
+            {{- if and .Values.routeController .Values.routeController.clusterCIDR }}
+            {{- $clusterCIDR = .Values.routeController.clusterCIDR }}
+            {{- end }}
+            {{- if .Values.enableNodeIPAM }}
+            {{- with .Values.enableNodeIPAM }}
+            - --allocate-node-cidrs={{ . }}
+            {{- end }}
+            {{- if not $clusterCIDR }}
+            {{- fail "clusterCIDR is required if enableNodeIPAM is set" }}
+            {{- end }}
+            {{- with .Values.disableIPv6NodeCIDRAllocation }}
+            - --disable-ipv6-node-cidr-allocation={{ . }}
+            {{- end }}
+            {{- with .Values.nodeCIDRMaskSizeIPv4 }}
+            - --node-cidr-mask-size-ipv4={{ . }}
+            {{- end }}
+            {{- with .Values.nodeCIDRMaskSizeIPv6 }}
+            - --node-cidr-mask-size-ipv6={{ . }}
+            {{- end }}
+            {{- end }}
+            {{- $vpcNames := .Values.vpcNames }}
+            {{- if and .Values.routeController .Values.routeController.vpcNames }}
+            {{- $vpcNames = .Values.routeController.vpcNames }}
+            {{- end }}
+            {{- $subnetNames := .Values.subnetNames }}
+            {{- if and .Values.routeController .Values.routeController.subnetNames }}
+            {{- $subnetNames = .Values.routeController.subnetNames }}
+            {{- end }}
+            {{- $vpcIDs := .Values.vpcIDs }}
+            {{- if and .Values.routeController .Values.routeController.vpcIDs }}
+            {{- $vpcIDs = .Values.routeController.vpcIDs }}
+            {{- end }}
+            {{- $subnetIDs := .Values.subnetIDs }}
+            {{- if and .Values.routeController .Values.routeController.subnetIDs }}
+            {{- $subnetIDs = .Values.routeController.subnetIDs }}
+            {{- end }}
+            {{- if and $vpcIDs $vpcNames }}
+            {{- fail "Both vpcIDs and vpcNames are set. Please use only one." }}
+            {{- end }}
+            {{- if and $subnetIDs $subnetNames }}
+            {{- fail "Both subnetIDs and subnetNames are set. Please use only one." }}
+            {{- end }}
+            {{- if .Values.disableNodeBalancerVPCBackends }}
+            - --disable-nodebalancer-vpc-backends={{ .Values.disableNodeBalancerVPCBackends }}
+            {{- end }}
+            {{- $nbvpcBackendIpv4SubnetName := .Values.nodeBalancerBackendIpv4SubnetName }}
+            {{- $nbvpcBackendIpv4SubnetID := .Values.nodeBalancerBackendIpv4SubnetID }}
+            {{- if and $nbvpcBackendIpv4SubnetName $nbvpcBackendIpv4SubnetID }}
+            {{- fail "Both nodeBalancerBackendIpv4SubnetName and nodeBalancerBackendIpv4SubnetID are set. Please use only one." }}
+            {{- end }}
+            {{- if $nbvpcBackendIpv4SubnetName }}
+            - --nodebalancer-backend-ipv4-subnet-name={{ $nbvpcBackendIpv4SubnetName }}
+            {{- end }}
+            {{- if $nbvpcBackendIpv4SubnetID }}
+            - --nodebalancer-backend-ipv4-subnet-id={{ $nbvpcBackendIpv4SubnetID }}
+            {{- end }}
+            {{- if .Values.routeController }}
+            - --enable-route-controller=true
+            {{- if not (or $vpcNames $vpcIDs) }}
+            {{- fail "vpcNames or vpcIDs not set. Please set it when enabling route_controller for VPCs." }}
+            {{- end }}
+            {{- if and $vpcIDs (not $subnetIDs) }}
+            {{- fail "subnetIDs must be set when vpcIDs are set for route-controller" }}
+            {{- end }}
+            {{- if and $subnetIDs (not $vpcIDs) }}
+            {{- fail "vpcIDs must be set when subnetIDs are set for route-controller" }}
+            {{- end }}
+            {{- if not $clusterCIDR }}
+            {{- fail "clusterCIDR is required if route-controller is enabled" }}
+            {{- end }}
+            - --configure-cloud-routes={{ default true .Values.routeController.configureCloudRoutes }}
+            {{- with .Values.routeController.routeReconciliationPeriod }}
+            - --route-reconciliation-period={{ . }}
+            {{- end }}
+            {{- end }}
+            {{- with $vpcNames }}
+            - --vpc-names={{ . }}
+            {{- end }}
+            {{- with $subnetNames }}
+            - --subnet-names={{ . }}
+            {{- end }}
+            {{- with $vpcIDs }}
+            - --vpc-ids={{ . }}
+            {{- end }}
+            {{- with $subnetIDs }}
+            - --subnet-ids={{ . }}
+            {{- end }}
+            {{- with $clusterCIDR }}
+            - --cluster-cidr={{ . }}
+            {{- end }}
+            {{- if .Values.sharedIPLoadBalancing }}
+            {{- with .Values.sharedIPLoadBalancing.bgpNodeSelector }}
+            - --bgp-node-selector={{ . }}
+            {{- end }}
+            {{- with .Values.sharedIPLoadBalancing.ipHolderSuffix }}
+            - --ip-holder-suffix={{ . }}
+            {{- end}}
+            - --load-balancer-type={{ required "A valid .Values.sharedIPLoadBalancing.loadBalancerType is required for shared IP load-balancing" .Values.sharedIPLoadBalancing.loadBalancerType }}
+            {{- end }}
+            {{- with .Values.tokenHealthChecker }}
+            - --enable-token-health-checker={{ . }}
+            {{- end }}
+            {{- with .Values.nodeBalancerTags }}
+            - --nodebalancer-tags={{ join " " . }}
+            {{- end }}
+            {{- if .Values.allowUnauthorizedMetrics }}
+            - --authorization-always-allow-paths="/metrics"
+            {{- end }}
+            {{- if .Values.defaultNBType }}
+            - --default-nodebalancer-type={{ .Values.defaultNBType }}
+            {{- end }}
+            {{- if .Values.enableIPv6ForLoadBalancers }}
+            - --enable-ipv6-for-loadbalancers={{ .Values.enableIPv6ForLoadBalancers }}
+            {{- end }}
+            {{- if .Values.nodeBalancerBackendIPv4Subnet }}
+            - --nodebalancer-backend-ipv4-subnet={{ .Values.nodeBalancerBackendIPv4Subnet }}
+            {{- end }}
+            {{- if .Values.nodeBalancerPrefix }}
+            - --nodebalancer-prefix={{ .Values.nodeBalancerPrefix }}
+            {{- end }}
+            {{- if .Values.extraArgs }}
+            {{- toYaml .Values.extraArgs | nindent 12 }}
+            {{- end }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe: 
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe: 
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources: 
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - mountPath: /etc/kubernetes
+              name: k8s
+            {{- with .Values.volumeMounts}}
+            {{- toYaml . | nindent 12 }}
+            {{- end}}
+          env:
+            {{- if .Values.k8sServiceHost }}
+            - name: KUBERNETES_SERVICE_HOST
+              value: {{  .Values.k8sServiceHost }}
+            {{- end }}
+            {{- if .Values.k8sServicePort }}
+            - name: KUBERNETES_SERVICE_PORT
+              value: {{ .Values.k8sServicePort | quote }}
+            {{- end }}
+            - name: LINODE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.secretRef }}{{ .Values.secretRef.name | default "ccm-linode" }}{{ else }}"ccm-linode"{{ end }}
+                  key: {{ if .Values.secretRef }}{{ .Values.secretRef.apiTokenRef | default "apiToken" }}{{ else }}"apiToken"{{ end }}
+            - name: LINODE_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.secretRef }}{{ .Values.secretRef.name | default "ccm-linode" }}{{ else }}"ccm-linode"{{ end }}
+                  key: {{ if .Values.secretRef }}{{ .Values.secretRef.regionRef | default "region" }}{{ else }}"region"{{ end }}
+            {{- with .Values.env}}
+            {{- toYaml . | nindent 12 }}
+            {{- end}}
+      volumes:
+        {{- with .Values.k8sVolume }}
+        {{- toYaml . | nindent 8 }}
+        {{- else }}
+        - name: k8s
+          hostPath:
+            path: /etc/kubernetes
+        {{- end }}
+        {{- with .Values.volumes}}
+        {{- toYaml . | nindent 8 }}
+        {{- end}}

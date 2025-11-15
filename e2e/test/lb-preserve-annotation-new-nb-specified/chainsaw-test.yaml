@@ -1,0 +1,122 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/test-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: lb-preserve-annotation-new-nb-specified
+  labels:
+    all:
+    lke:
+spec:
+  namespace: "lb-preserve-annotation-new-nb-specified"
+  steps:
+    - name: Create resources
+      try:
+        - apply:
+            file: create-pods-services.yaml
+      catch:
+        - describe:
+            apiVersion: v1
+            kind: Pod
+        - describe:
+            apiVersion: v1
+            kind: Service
+    - name: Check that loadbalancer ip is assigned
+      try:
+      - assert:
+          resource:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: svc-test
+            status:
+              (loadBalancer.ingress[0].ip != null): true
+    - name: Create new nodebalancer and update service to use it
+      try:
+        - script:
+            content: |
+              set -e
+
+              re='^[0-9]+$'
+
+              # Get existing nodebalancer id
+              old_nbid=$(KUBECONFIG=$KUBECONFIG NAMESPACE=$NAMESPACE LINODE_TOKEN=$LINODE_TOKEN ../scripts/get-nb-id.sh)
+
+              # Create new nodebalancer and use it
+              LABEL="ccm-$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 5)"
+
+              # Get VPC config for the old nodebalancer if it exists
+              vpcconfig=$(curl -s \
+                -H "Authorization: Bearer $LINODE_TOKEN" \
+                -H "Content-Type: application/json" --fail-early --retry 3 \
+                "$LINODE_URL/v4beta/nodebalancers/$old_nbid/vpcs")
+
+              echo "Nodebalancer ID: $old_nbid"
+              echo "VPC config: $vpcconfig"
+
+              SUBNET_ID=$(echo $vpcconfig | jq -r ".data[] | select(.nodebalancer_id == $old_nbid) | .subnet_id")
+              echo "Subnet ID: $SUBNET_ID"
+
+              data="{\"label\": \"$LABEL\", \"region\": \"$REGION\", \"vpcs\": [{\"subnet_id\": $SUBNET_ID}]}"
+              if [[ -z $SUBNET_ID ]]; then
+                  data="{\"label\": \"$LABEL\", \"region\": \"$REGION\"}"
+              fi
+
+              nbid=$(curl -s --request POST \
+                -H "Authorization: Bearer $LINODE_TOKEN" \
+                -H "Content-Type: application/json" --fail-early --retry 3 \
+                -H "accept: application/json" \
+                "$LINODE_URL/v4beta/nodebalancers" \
+                --data "$data" | jq .id)
+
+              if ! [[ $nbid =~ $re ]]; then
+                  echo "Nodebalancer id [$nbid] is incorrect, failed to create nodebalancer"
+                  exit 1
+              fi
+
+              kubectl annotate svc svc-test -n $NAMESPACE service.beta.kubernetes.io/linode-loadbalancer-nodebalancer-id=$nbid
+
+              for i in {1..10}; do
+                  nbid2=$(KUBECONFIG=$KUBECONFIG NAMESPACE=$NAMESPACE LINODE_TOKEN=$LINODE_TOKEN ../scripts/get-nb-id.sh)
+
+                  if [[ $nbid == $nbid2 ]]; then
+                      echo "updated nodebalancer used"
+                      break
+                  fi
+                  sleep 5
+              done
+
+              # Check old nodebalancer still exists
+              old_nb_resp=$(curl --write-out "%{http_code}\n" \
+                --silent --output /dev/null \
+                -H "Authorization: Bearer $LINODE_TOKEN" \
+                "$LINODE_URL/v4/nodebalancers/$old_nbid")
+
+              if [[ $old_nb_resp == "200" ]]; then
+                  echo "old nodebalancer found"
+              fi
+
+              # cleanup old nodebalancer
+              delete_resp=$(curl --write-out "%{http_code}\n" \
+                --silent --output /dev/null \
+                -X DELETE \
+                -H "Authorization: Bearer $LINODE_TOKEN" \
+                "$LINODE_URL/v4/nodebalancers/$old_nbid")
+
+              if [[ $delete_resp != "200" ]]; then
+                  echo "failed deleting nodebalancer"
+              fi
+
+              # cleanup new nodebalancer
+              delete_resp=$(curl --write-out "%{http_code}\n" \
+                --silent --output /dev/null \
+                -X DELETE \
+                -H "Authorization: Bearer $LINODE_TOKEN" \
+                "$LINODE_URL/v4/nodebalancers/$nbid")
+
+              if [[ $delete_resp != "200" ]]; then
+                  echo "failed deleting nodebalancer"
+              fi
+            check:
+              ($error == null): true
+              (contains($stdout, 'updated nodebalancer used')): true
+              (contains($stdout, 'old nodebalancer found')): true
